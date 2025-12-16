@@ -29,13 +29,11 @@ class PDFSignerApp:
         try:
             self.pdf_document = fitz.open(pdf_path)
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to load PDF: {e}")
-            sys.exit(1)
+            raise ValueError(f"Failed to load PDF: {e}")
         
         # Verify signature file exists
         if not os.path.exists(signature_path):
-            messagebox.showerror("Error", f"Signature file not found: {signature_path}")
-            sys.exit(1)
+            raise FileNotFoundError(f"Signature file not found: {signature_path}")
         
         self.setup_ui()
         self.render_page()
@@ -254,14 +252,16 @@ class PDFSignerApp:
         try:
             self.pdf_document.save(output_path)
             messagebox.showinfo("Success", f"PDF saved as: {output_path}")
+            self.cleanup()
             self.root.quit()
         except Exception as e:
             messagebox.showerror("Error", f"Failed to save PDF: {e}")
     
-    def __del__(self):
-        """Cleanup"""
+    def cleanup(self):
+        """Cleanup resources"""
         if self.pdf_document:
             self.pdf_document.close()
+            self.pdf_document = None
 
 
 def main():
@@ -284,8 +284,17 @@ def main():
     
     # Create Tkinter root window
     root = tk.Tk()
-    app = PDFSignerApp(root, pdf_path, signature_path)
-    root.mainloop()
+    
+    try:
+        app = PDFSignerApp(root, pdf_path, signature_path)
+        root.mainloop()
+    except (ValueError, FileNotFoundError) as e:
+        messagebox.showerror("Error", str(e))
+        sys.exit(1)
+    finally:
+        # Ensure cleanup happens
+        if 'app' in locals():
+            app.cleanup()
 
 
 if __name__ == "__main__":
