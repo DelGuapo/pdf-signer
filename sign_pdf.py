@@ -39,7 +39,7 @@ def guessFontSize(strLength, boxWidth, boxHeight):
     # Use the smaller of the two to ensure text fits
     font_size = min(width_based_size, height_based_size)
     
-    # Clamp between reasonable bounds, with a higher minimum for readability
+    # Clamp between reasonable bounds (lower minimum to handle very small boxes)
     font_size = max(4, min(font_size, 72))
     
     return font_size
@@ -428,7 +428,7 @@ class PDFSignerApp:
         
         try:
             # Insert text with calculated font size
-            # insert_textbox returns the remaining text length (<0 if text overflowed)
+            # insert_textbox returns <0 if text overflowed (couldn't fit in box)
             overflow = page.insert_textbox(
                 rect,
                 text,
