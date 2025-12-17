@@ -15,7 +15,7 @@ import os
 def guessFontSize(strLength, boxWidth, boxHeight):
     """
     Guess the best font size based on string length and box dimensions.
-    This is a heuristic that will be fine-tuned after human testing.
+    Uses very aggressive sizing to fit text in small boxes.
     
     Args:
         strLength: Length of the text string
@@ -28,17 +28,18 @@ def guessFontSize(strLength, boxWidth, boxHeight):
     if strLength == 0:
         return 12
     
-    # Estimate based on width (assuming average character width is ~0.6 * font_size)
-    width_based_size = (boxWidth / strLength) / 0.6
+    # Very aggressive sizing - assume narrow character width
+    # Estimate based on width (assuming average character width is ~0.35 * font_size for tight fit)
+    width_based_size = (boxWidth / strLength) / 0.35
     
-    # Estimate based on height (with some padding, use ~0.8 of height)
-    height_based_size = boxHeight * 0.8
+    # Estimate based on height (use almost full height)
+    height_based_size = boxHeight * 0.95
     
     # Use the smaller of the two to ensure text fits
     font_size = min(width_based_size, height_based_size)
     
-    # Clamp between reasonable bounds
-    font_size = max(6, min(font_size, 72))
+    # Only clamp maximum, no minimum font size restriction
+    font_size = min(font_size, 72)
     
     return font_size
 
@@ -70,9 +71,6 @@ class PDFSignerApp:
         
         self.setup_ui()
         self.render_page()
-        
-        # Show initial prompt
-        self.prompt_sign_doc()
     
     def setup_ui(self):
         """Setup the UI components"""
@@ -132,9 +130,27 @@ class PDFSignerApp:
             value="View Mode"
         ).pack(side=tk.LEFT)
         
+        # Frame for canvas and scrollbars
+        canvas_frame = tk.Frame(self.root)
+        canvas_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+        
         # Canvas for PDF display
-        self.canvas = tk.Canvas(self.root, bg="white")
-        self.canvas.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+        self.canvas = tk.Canvas(canvas_frame, bg="white")
+        
+        # Add scrollbars
+        v_scrollbar = tk.Scrollbar(canvas_frame, orient=tk.VERTICAL, command=self.canvas.yview)
+        h_scrollbar = tk.Scrollbar(canvas_frame, orient=tk.HORIZONTAL, command=self.canvas.xview)
+        
+        self.canvas.configure(yscrollcommand=v_scrollbar.set, xscrollcommand=h_scrollbar.set)
+        
+        # Grid layout for canvas and scrollbars
+        self.canvas.grid(row=0, column=0, sticky=tk.NSEW)
+        v_scrollbar.grid(row=0, column=1, sticky=tk.NS)
+        h_scrollbar.grid(row=1, column=0, sticky=tk.EW)
+        
+        # Configure grid weights
+        canvas_frame.grid_rowconfigure(0, weight=1)
+        canvas_frame.grid_columnconfigure(0, weight=1)
         
         # Bind mouse events for rectangle selection
         self.canvas.bind("<Button-1>", self.on_mouse_down)
@@ -167,8 +183,10 @@ class PDFSignerApp:
         
         # Update canvas
         self.canvas.delete("all")
-        self.canvas.config(width=pix.width, height=pix.height)
         self.canvas.create_image(0, 0, anchor=tk.NW, image=self.photo)
+        
+        # Configure scroll region to show entire image
+        self.canvas.config(scrollregion=(0, 0, pix.width, pix.height))
         
         # Store page dimensions for coordinate conversion
         self.page_width = page.rect.width
@@ -201,8 +219,16 @@ class PDFSignerApp:
     
     def on_mouse_down(self, event):
         """Handle mouse button down event"""
-        self.selection_start = (event.x, event.y)
-        self.selection_end = (event.x, event.y)
+        # Don't allow selection in View Mode
+        if self.mode.get() == "View Mode":
+            return
+        
+        # Convert window coordinates to canvas coordinates (accounts for scrolling)
+        canvas_x = self.canvas.canvasx(event.x)
+        canvas_y = self.canvas.canvasy(event.y)
+        
+        self.selection_start = (canvas_x, canvas_y)
+        self.selection_end = (canvas_x, canvas_y)
         
         # Clear any existing selection rectangle
         if self.selection_rect:
@@ -210,8 +236,16 @@ class PDFSignerApp:
     
     def on_mouse_drag(self, event):
         """Handle mouse drag event"""
+        # Don't allow selection in View Mode
+        if self.mode.get() == "View Mode":
+            return
+        
         if self.selection_start:
-            self.selection_end = (event.x, event.y)
+            # Convert window coordinates to canvas coordinates (accounts for scrolling)
+            canvas_x = self.canvas.canvasx(event.x)
+            canvas_y = self.canvas.canvasy(event.y)
+            
+            self.selection_end = (canvas_x, canvas_y)
             
             # Update rectangle
             if self.selection_rect:
@@ -227,8 +261,16 @@ class PDFSignerApp:
     
     def on_mouse_up(self, event):
         """Handle mouse button release event"""
+        # Don't allow selection in View Mode
+        if self.mode.get() == "View Mode":
+            return
+        
         if self.selection_start:
-            self.selection_end = (event.x, event.y)
+            # Convert window coordinates to canvas coordinates (accounts for scrolling)
+            canvas_x = self.canvas.canvasx(event.x)
+            canvas_y = self.canvas.canvasy(event.y)
+            
+            self.selection_end = (canvas_x, canvas_y)
             
             # Check if we have a valid selection
             x1, y1 = self.selection_start
@@ -392,11 +434,46 @@ class PDFSignerApp:
         # Create rectangle for text placement
         rect = fitz.Rect(pdf_x1, pdf_y1, pdf_x2, pdf_y2)
         
-        # Guess font size
-        font_size = guessFontSize(len(text), box_width, box_height)
-        
         try:
-            # Insert text
+            # Calculate font size using aggressive sizing
+            font_size = guessFontSize(len(text), box_width, box_height)
+            
+            # If text is very long and font is extremely small, consider expanding
+            # Only expand for text longer than 21 chars with font < 4pt
+            baseline_length = 21
+            if len(text) > baseline_length and font_size < 4:
+                # Box is likely too small for very long text, expand it
+                # Calculate center for expansion
+                center_x = (pdf_x1 + pdf_x2) / 2
+                center_y = (pdf_y1 + pdf_y2) / 2
+                
+                # Get page dimensions for bounds checking
+                page_rect = page.rect
+                
+                # Try expanding by 1.5x
+                expansion_factor = 1.5
+                expanded_width = box_width * expansion_factor
+                expanded_height = box_height * expansion_factor
+                
+                # Calculate new coordinates keeping center fixed
+                pdf_x1 = center_x - expanded_width / 2
+                pdf_y1 = center_y - expanded_height / 2
+                pdf_x2 = center_x + expanded_width / 2
+                pdf_y2 = center_y + expanded_height / 2
+                
+                # Clamp to page boundaries
+                pdf_x1 = max(0, pdf_x1)
+                pdf_y1 = max(0, pdf_y1)
+                pdf_x2 = min(page_rect.width, pdf_x2)
+                pdf_y2 = min(page_rect.height, pdf_y2)
+                
+                # Recalculate font size for expanded box
+                font_size = guessFontSize(len(text), pdf_x2 - pdf_x1, pdf_y2 - pdf_y1)
+                
+                # Update rect
+                rect = fitz.Rect(pdf_x1, pdf_y1, pdf_x2, pdf_y2)
+            
+            # Insert text with (possibly expanded) box
             page.insert_textbox(
                 rect,
                 text,
