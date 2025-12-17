@@ -15,7 +15,7 @@ import os
 def guessFontSize(strLength, boxWidth, boxHeight):
     """
     Guess the best font size based on string length and box dimensions.
-    This is a heuristic that will be fine-tuned after human testing.
+    Uses "This is a test string" (21 chars) as baseline for liberal sizing.
     
     Args:
         strLength: Length of the text string
@@ -28,17 +28,18 @@ def guessFontSize(strLength, boxWidth, boxHeight):
     if strLength == 0:
         return 12
     
-    # Estimate based on width (assuming average character width is ~0.6 * font_size)
-    width_based_size = (boxWidth / strLength) / 0.6
+    # Use baseline of "This is a test string" (21 chars) for more liberal sizing
+    # Estimate based on width (assuming average character width is ~0.5 * font_size for liberal fit)
+    width_based_size = (boxWidth / strLength) / 0.5
     
-    # Estimate based on height (with some padding, use ~0.8 of height)
-    height_based_size = boxHeight * 0.8
+    # Estimate based on height (use full height with minimal padding for liberal fit)
+    height_based_size = boxHeight * 0.9
     
     # Use the smaller of the two to ensure text fits
     font_size = min(width_based_size, height_based_size)
     
-    # Clamp between reasonable bounds
-    font_size = max(6, min(font_size, 72))
+    # Only clamp maximum, no minimum font size restriction
+    font_size = min(font_size, 72)
     
     return font_size
 
@@ -437,10 +438,11 @@ class PDFSignerApp:
             # Calculate font size and check if box needs expansion
             font_size = guessFontSize(len(text), box_width, box_height)
             
-            # Estimate if text will fit by checking if calculated font size is reasonable
-            # If font size is at minimum (6pt), the box might be too small
-            if font_size <= 6 and len(text) > 3:
-                # Box is likely too small, expand it proactively
+            # Baseline is "This is a test string" (21 chars)
+            # If text is longer than baseline and font is very small, consider expanding
+            baseline_length = 21
+            if len(text) > baseline_length and font_size < 4:
+                # Box is likely too small for text longer than baseline, expand it
                 # Calculate center for expansion
                 center_x = (pdf_x1 + pdf_x2) / 2
                 center_y = (pdf_y1 + pdf_y2) / 2
