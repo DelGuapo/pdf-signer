@@ -448,11 +448,44 @@ class PDFSignerApp:
                 align=fitz.TEXT_ALIGN_LEFT
             )
             
-            # Warn user if text didn't fit completely
+            # If text overflowed, expand the box and try again
             if overflow < 0:
-                messagebox.showwarning("Warning", 
-                    "Text may be too large for the selected box. "
-                    "Some text may be cut off. Consider making the box larger.")
+                # Calculate center of original box
+                center_x = (pdf_x1 + pdf_x2) / 2
+                center_y = (pdf_y1 + pdf_y2) / 2
+                
+                # Try expanding box up to 3 times (1.3x, 1.6x, 2.0x)
+                expansion_factors = [1.3, 1.6, 2.0]
+                for factor in expansion_factors:
+                    # Calculate new dimensions keeping center fixed
+                    new_width = box_width * factor
+                    new_height = box_height * factor
+                    
+                    new_pdf_x1 = center_x - new_width / 2
+                    new_pdf_y1 = center_y - new_height / 2
+                    new_pdf_x2 = center_x + new_width / 2
+                    new_pdf_y2 = center_y + new_height / 2
+                    
+                    # Create new rect
+                    new_rect = fitz.Rect(new_pdf_x1, new_pdf_y1, new_pdf_x2, new_pdf_y2)
+                    
+                    # Recalculate font size for new dimensions
+                    new_font_size = guessFontSize(len(text), new_width, new_height)
+                    
+                    # Try inserting again
+                    overflow = page.insert_textbox(
+                        new_rect,
+                        text,
+                        fontsize=new_font_size,
+                        fontname="helv",
+                        fontfile=None,
+                        align=fitz.TEXT_ALIGN_LEFT
+                    )
+                    
+                    if overflow >= 0:
+                        # Text fit successfully, update rect for any future reference
+                        rect = new_rect
+                        break
             
             # Re-render the page to show the text
             self.render_page()
