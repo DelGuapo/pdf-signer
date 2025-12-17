@@ -672,9 +672,6 @@ class PDFSignerApp:
     
     def increase_font_size(self, textbox):
         """Increase font size of a text box"""
-        # Get the page
-        page = self.pdf_document[textbox['page']]
-        
         # Remove old text
         # Find and remove the text by redrawing the page content
         # We need to regenerate the page from original and reapply all changes
@@ -682,6 +679,9 @@ class PDFSignerApp:
         
         # Increase font size
         textbox['font_size'] = min(textbox['font_size'] + 2, 144)
+        
+        # Get the page AFTER regenerating (important: old page reference would be invalid)
+        page = self.pdf_document[textbox['page']]
         
         # Re-insert text with new size
         page.insert_textbox(
@@ -698,14 +698,14 @@ class PDFSignerApp:
     
     def decrease_font_size(self, textbox):
         """Decrease font size of a text box"""
-        # Get the page
-        page = self.pdf_document[textbox['page']]
-        
         # Remove old text
         self.regenerate_page_content(textbox['page'], exclude_textbox=textbox)
         
         # Decrease font size
         textbox['font_size'] = max(textbox['font_size'] - 2, 4)
+        
+        # Get the page AFTER regenerating (important: old page reference would be invalid)
+        page = self.pdf_document[textbox['page']]
         
         # Re-insert text with new size
         page.insert_textbox(
