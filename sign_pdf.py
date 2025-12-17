@@ -61,6 +61,7 @@ class PDFSignerApp:
         
         # Track text boxes for editing/resizing
         self.text_boxes = []  # List of dict: {rect, text, font_size, page, canvas_items}
+        self.signatures = []  # List of dict: {rect, page}
         self.selected_textbox = None
         self.resize_handle = None
         self.resize_start = None
@@ -344,6 +345,12 @@ class PDFSignerApp:
         try:
             # Insert signature image
             page.insert_image(rect, filename=self.signature_path)
+            
+            # Track signature for regeneration
+            self.signatures.append({
+                'rect': rect,
+                'page': self.current_page
+            })
             
             # Re-render the page to show the signature
             self.render_page()
@@ -822,7 +829,7 @@ class PDFSignerApp:
     def regenerate_page_content(self, page_num, exclude_textbox=None):
         """Regenerate page content excluding a specific textbox"""
         # This is a simplified approach - we reload the page from the original PDF
-        # and reapply all textboxes except the excluded one
+        # and reapply all signatures and textboxes except the excluded one
         
         # Close and reopen the PDF to get fresh page
         old_doc = self.pdf_document
@@ -830,6 +837,12 @@ class PDFSignerApp:
         
         # Copy over all modifications except the excluded textbox
         for i, page in enumerate(self.pdf_document):
+            # Reapply signatures
+            for signature in self.signatures:
+                if signature['page'] == i:
+                    page.insert_image(signature['rect'], filename=self.signature_path)
+            
+            # Reapply textboxes except excluded one
             for textbox in self.text_boxes:
                 if textbox['page'] == i and textbox != exclude_textbox:
                     page.insert_textbox(
