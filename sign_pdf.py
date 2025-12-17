@@ -15,7 +15,7 @@ import os
 def guessFontSize(strLength, boxWidth, boxHeight):
     """
     Guess the best font size based on string length and box dimensions.
-    Uses "This is a test string" (21 chars) as baseline for liberal sizing.
+    Uses very aggressive sizing to fit text in small boxes.
     
     Args:
         strLength: Length of the text string
@@ -28,12 +28,12 @@ def guessFontSize(strLength, boxWidth, boxHeight):
     if strLength == 0:
         return 12
     
-    # Use baseline of "This is a test string" (21 chars) for more liberal sizing
-    # Estimate based on width (assuming average character width is ~0.5 * font_size for liberal fit)
-    width_based_size = (boxWidth / strLength) / 0.5
+    # Very aggressive sizing - assume narrow character width
+    # Estimate based on width (assuming average character width is ~0.35 * font_size for tight fit)
+    width_based_size = (boxWidth / strLength) / 0.35
     
-    # Estimate based on height (use full height with minimal padding for liberal fit)
-    height_based_size = boxHeight * 0.9
+    # Estimate based on height (use almost full height)
+    height_based_size = boxHeight * 0.95
     
     # Use the smaller of the two to ensure text fits
     font_size = min(width_based_size, height_based_size)
