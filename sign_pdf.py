@@ -28,19 +28,17 @@ def guessFontSize(strLength, boxWidth, boxHeight):
     if strLength == 0:
         return 12
     
-    # More conservative estimates to ensure text fits in smaller boxes
-    # Estimate based on width (assuming average character width is ~0.65 * font_size)
-    # Add a safety margin of 0.85 to ensure it fits
-    width_based_size = (boxWidth / strLength) / 0.65 * 0.85
+    # Estimate based on width (assuming average character width is ~0.6 * font_size)
+    width_based_size = (boxWidth / strLength) / 0.6
     
-    # Estimate based on height (with padding, use ~0.7 of height for safety)
-    height_based_size = boxHeight * 0.7
+    # Estimate based on height (with some padding, use ~0.8 of height)
+    height_based_size = boxHeight * 0.8
     
     # Use the smaller of the two to ensure text fits
     font_size = min(width_based_size, height_based_size)
     
-    # Clamp between reasonable bounds (lower minimum to handle very small boxes)
-    font_size = max(4, min(font_size, 72))
+    # Clamp between reasonable bounds
+    font_size = max(6, min(font_size, 72))
     
     return font_size
 
@@ -224,8 +222,12 @@ class PDFSignerApp:
         if self.mode.get() == "View Mode":
             return
         
-        self.selection_start = (event.x, event.y)
-        self.selection_end = (event.x, event.y)
+        # Convert window coordinates to canvas coordinates (accounts for scrolling)
+        canvas_x = self.canvas.canvasx(event.x)
+        canvas_y = self.canvas.canvasy(event.y)
+        
+        self.selection_start = (canvas_x, canvas_y)
+        self.selection_end = (canvas_x, canvas_y)
         
         # Clear any existing selection rectangle
         if self.selection_rect:
@@ -238,7 +240,11 @@ class PDFSignerApp:
             return
         
         if self.selection_start:
-            self.selection_end = (event.x, event.y)
+            # Convert window coordinates to canvas coordinates (accounts for scrolling)
+            canvas_x = self.canvas.canvasx(event.x)
+            canvas_y = self.canvas.canvasy(event.y)
+            
+            self.selection_end = (canvas_x, canvas_y)
             
             # Update rectangle
             if self.selection_rect:
@@ -259,7 +265,11 @@ class PDFSignerApp:
             return
         
         if self.selection_start:
-            self.selection_end = (event.x, event.y)
+            # Convert window coordinates to canvas coordinates (accounts for scrolling)
+            canvas_x = self.canvas.canvasx(event.x)
+            canvas_y = self.canvas.canvasy(event.y)
+            
+            self.selection_end = (canvas_x, canvas_y)
             
             # Check if we have a valid selection
             x1, y1 = self.selection_start
