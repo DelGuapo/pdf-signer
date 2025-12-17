@@ -12,6 +12,37 @@ from PIL import Image, ImageTk
 import os
 
 
+def guessFontSize(strLength, boxWidth, boxHeight):
+    """
+    Guess the best font size based on string length and box dimensions.
+    This is a heuristic that will be fine-tuned after human testing.
+    
+    Args:
+        strLength: Length of the text string
+        boxWidth: Width of the bounding box
+        boxHeight: Height of the bounding box
+    
+    Returns:
+        Estimated font size in points
+    """
+    if strLength == 0:
+        return 12
+    
+    # Estimate based on width (assuming average character width is ~0.6 * font_size)
+    width_based_size = (boxWidth / strLength) / 0.6
+    
+    # Estimate based on height (with some padding, use ~0.8 of height)
+    height_based_size = boxHeight * 0.8
+    
+    # Use the smaller of the two to ensure text fits
+    font_size = min(width_based_size, height_based_size)
+    
+    # Clamp between reasonable bounds
+    font_size = max(6, min(font_size, 72))
+    
+    return font_size
+
+
 class PDFSignerApp:
     def __init__(self, root, pdf_path, signature_path):
         self.root = root
@@ -24,6 +55,8 @@ class PDFSignerApp:
         self.selection_end = None
         self.selection_rect = None
         self.signed = False
+        self.mode = tk.StringVar(value="View Mode")  # Default mode
+        self.text_dialog = None
         
         # Load PDF
         try:
@@ -43,18 +76,61 @@ class PDFSignerApp:
     
     def setup_ui(self):
         """Setup the UI components"""
-        # Top frame for navigation
+        # Top frame for navigation and controls
         top_frame = tk.Frame(self.root)
         top_frame.pack(side=tk.TOP, fill=tk.X, padx=5, pady=5)
         
-        self.prev_button = tk.Button(top_frame, text="Previous", command=self.prev_page)
+        # Left section - Sign PDF button
+        left_frame = tk.Frame(top_frame)
+        left_frame.pack(side=tk.LEFT, padx=5)
+        
+        self.sign_pdf_button = tk.Button(
+            left_frame,
+            text="Sign PDF",
+            command=self.save_signed_pdf,
+            state=tk.DISABLED
+        )
+        self.sign_pdf_button.pack()
+        
+        # Center section - Pagination
+        center_frame = tk.Frame(top_frame)
+        center_frame.pack(side=tk.LEFT, expand=True)
+        
+        self.prev_button = tk.Button(center_frame, text="Previous", command=self.prev_page)
         self.prev_button.pack(side=tk.LEFT, padx=5)
         
-        self.page_label = tk.Label(top_frame, text="")
+        self.page_label = tk.Label(center_frame, text="")
         self.page_label.pack(side=tk.LEFT, padx=10)
         
-        self.next_button = tk.Button(top_frame, text="Next", command=self.next_page)
+        self.next_button = tk.Button(center_frame, text="Next", command=self.next_page)
         self.next_button.pack(side=tk.LEFT, padx=5)
+        
+        # Right section - Mode selection
+        right_frame = tk.Frame(top_frame)
+        right_frame.pack(side=tk.RIGHT, padx=5)
+        
+        tk.Label(right_frame, text="Mode:").pack(side=tk.LEFT, padx=5)
+        
+        tk.Radiobutton(
+            right_frame,
+            text="Sign Mode",
+            variable=self.mode,
+            value="Sign Mode"
+        ).pack(side=tk.LEFT)
+        
+        tk.Radiobutton(
+            right_frame,
+            text="Text Mode",
+            variable=self.mode,
+            value="Text Mode"
+        ).pack(side=tk.LEFT)
+        
+        tk.Radiobutton(
+            right_frame,
+            text="View Mode",
+            variable=self.mode,
+            value="View Mode"
+        ).pack(side=tk.LEFT)
         
         # Canvas for PDF display
         self.canvas = tk.Canvas(self.root, bg="white")
@@ -64,26 +140,6 @@ class PDFSignerApp:
         self.canvas.bind("<Button-1>", self.on_mouse_down)
         self.canvas.bind("<B1-Motion>", self.on_mouse_drag)
         self.canvas.bind("<ButtonRelease-1>", self.on_mouse_up)
-        
-        # Bottom frame for action buttons (initially hidden)
-        self.bottom_frame = tk.Frame(self.root)
-        self.bottom_frame.pack(side=tk.BOTTOM, fill=tk.X, padx=5, pady=5)
-        
-        self.sign_again_button = tk.Button(
-            self.bottom_frame, 
-            text="Sign Again", 
-            command=self.sign_again,
-            state=tk.DISABLED
-        )
-        self.sign_again_button.pack(side=tk.LEFT, padx=5)
-        
-        self.save_button = tk.Button(
-            self.bottom_frame, 
-            text="Save", 
-            command=self.save_pdf,
-            state=tk.DISABLED
-        )
-        self.save_button.pack(side=tk.LEFT, padx=5)
     
     def prompt_sign_doc(self):
         """Show 'Sign Doc?' prompt"""
@@ -179,7 +235,12 @@ class PDFSignerApp:
             x2, y2 = self.selection_end
             
             if abs(x2 - x1) > 5 and abs(y2 - y1) > 5:  # Minimum size threshold
-                self.insert_signature()
+                current_mode = self.mode.get()
+                
+                if current_mode == "Sign Mode":
+                    self.insert_signature()
+                elif current_mode == "Text Mode":
+                    self.show_text_input_dialog()
     
     def insert_signature(self):
         """Insert signature at selected coordinates"""
@@ -225,29 +286,170 @@ class PDFSignerApp:
                 self.canvas.delete(self.selection_rect)
                 self.selection_rect = None
             
-            # Enable action buttons
-            self.sign_again_button.config(state=tk.NORMAL)
-            self.save_button.config(state=tk.NORMAL)
+            # Enable Sign PDF button
+            self.sign_pdf_button.config(state=tk.NORMAL)
             self.signed = True
+            
+            # Switch to View Mode
+            self.mode.set("View Mode")
             
             messagebox.showinfo("Success", "Signature added successfully!")
         
         except Exception as e:
             messagebox.showerror("Error", f"Failed to insert signature: {e}")
     
-    def sign_again(self):
-        """Allow user to sign again"""
-        self.prompt_sign_doc()
-    
-    def save_pdf(self):
-        """Save the signed PDF"""
-        if not self.signed:
-            messagebox.showwarning("Warning", "No signature has been added yet.")
+    def show_text_input_dialog(self):
+        """Show dialog for text input with Put Text and Cancel buttons"""
+        if not self.selection_start or not self.selection_end:
             return
         
-        # Generate output filename
+        # Create a custom dialog window
+        self.text_dialog = tk.Toplevel(self.root)
+        self.text_dialog.title("Enter Text")
+        self.text_dialog.geometry("300x150")
+        self.text_dialog.transient(self.root)
+        self.text_dialog.grab_set()
+        
+        # Center the dialog
+        self.text_dialog.update_idletasks()
+        x = (self.text_dialog.winfo_screenwidth() // 2) - (self.text_dialog.winfo_width() // 2)
+        y = (self.text_dialog.winfo_screenheight() // 2) - (self.text_dialog.winfo_height() // 2)
+        self.text_dialog.geometry(f"+{x}+{y}")
+        
+        # Label
+        tk.Label(self.text_dialog, text="Enter text to add:").pack(pady=10)
+        
+        # Text entry
+        self.text_entry = tk.Entry(self.text_dialog, width=30)
+        self.text_entry.pack(pady=10)
+        self.text_entry.focus()
+        
+        # Bind Enter key to Put Text action
+        self.text_entry.bind("<Return>", lambda _: self.put_text())
+        
+        # Button frame
+        button_frame = tk.Frame(self.text_dialog)
+        button_frame.pack(pady=10)
+        
+        # Put Text button
+        tk.Button(
+            button_frame,
+            text="Put Text",
+            command=self.put_text
+        ).pack(side=tk.LEFT, padx=5)
+        
+        # Cancel button
+        tk.Button(
+            button_frame,
+            text="Cancel",
+            command=self.cancel_text_input
+        ).pack(side=tk.LEFT, padx=5)
+    
+    def put_text(self):
+        """Insert text at selected coordinates"""
+        if not hasattr(self, 'text_entry') or not self.text_entry:
+            return
+        
+        text = self.text_entry.get().strip()
+        
+        if not text:
+            messagebox.showwarning("Warning", "Please enter some text.")
+            return
+        
+        # Close the dialog
+        self.text_dialog.destroy()
+        self.text_dialog = None
+        
+        if not self.selection_start or not self.selection_end:
+            return
+        
+        # Convert display coordinates to PDF coordinates
+        x1, y1 = self.selection_start
+        x2, y2 = self.selection_end
+        
+        # Ensure x1 < x2 and y1 < y2
+        if x1 > x2:
+            x1, x2 = x2, x1
+        if y1 > y2:
+            y1, y2 = y2, y1
+        
+        # Scale coordinates from display to PDF
+        scale_x = self.page_width / self.display_width
+        scale_y = self.page_height / self.display_height
+        
+        pdf_x1 = x1 * scale_x
+        pdf_y1 = y1 * scale_y
+        pdf_x2 = x2 * scale_x
+        pdf_y2 = y2 * scale_y
+        
+        # Calculate box dimensions
+        box_width = pdf_x2 - pdf_x1
+        box_height = pdf_y2 - pdf_y1
+        
+        # Get the current page
+        page = self.pdf_document[self.current_page]
+        
+        # Create rectangle for text placement
+        rect = fitz.Rect(pdf_x1, pdf_y1, pdf_x2, pdf_y2)
+        
+        # Guess font size
+        font_size = guessFontSize(len(text), box_width, box_height)
+        
+        try:
+            # Insert text
+            page.insert_textbox(
+                rect,
+                text,
+                fontsize=font_size,
+                fontname="helv",
+                fontfile=None,
+                align=fitz.TEXT_ALIGN_LEFT
+            )
+            
+            # Re-render the page to show the text
+            self.render_page()
+            
+            # Clear selection
+            self.selection_start = None
+            self.selection_end = None
+            if self.selection_rect:
+                self.canvas.delete(self.selection_rect)
+                self.selection_rect = None
+            
+            # Enable Sign PDF button
+            self.sign_pdf_button.config(state=tk.NORMAL)
+            self.signed = True
+            
+            # Switch to View Mode
+            self.mode.set("View Mode")
+            
+            messagebox.showinfo("Success", "Text added successfully!")
+        
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to insert text: {e}")
+    
+    def cancel_text_input(self):
+        """Cancel text input and close dialog"""
+        if self.text_dialog:
+            self.text_dialog.destroy()
+            self.text_dialog = None
+        
+        # Clear selection
+        self.selection_start = None
+        self.selection_end = None
+        if self.selection_rect:
+            self.canvas.delete(self.selection_rect)
+            self.selection_rect = None
+    
+    def save_signed_pdf(self):
+        """Save the signed PDF with _SIGNED suffix"""
+        if not self.signed:
+            messagebox.showwarning("Warning", "No signature or text has been added yet.")
+            return
+        
+        # Generate output filename with _SIGNED suffix (uppercase)
         base_name = os.path.splitext(self.pdf_path)[0]
-        output_path = f"{base_name}_signed.pdf"
+        output_path = f"{base_name}_SIGNED.pdf"
         
         try:
             self.pdf_document.save(output_path)
