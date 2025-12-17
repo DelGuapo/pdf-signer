@@ -433,13 +433,46 @@ class PDFSignerApp:
         # Create rectangle for text placement
         rect = fitz.Rect(pdf_x1, pdf_y1, pdf_x2, pdf_y2)
         
-        # Guess font size
-        font_size = guessFontSize(len(text), box_width, box_height)
-        
         try:
-            # Insert text with calculated font size
-            # insert_textbox returns <0 if text overflowed (couldn't fit in box)
-            overflow = page.insert_textbox(
+            # Calculate font size and check if box needs expansion
+            font_size = guessFontSize(len(text), box_width, box_height)
+            
+            # Estimate if text will fit by checking if calculated font size is reasonable
+            # If font size is at minimum (6pt), the box might be too small
+            if font_size <= 6 and len(text) > 3:
+                # Box is likely too small, expand it proactively
+                # Calculate center for expansion
+                center_x = (pdf_x1 + pdf_x2) / 2
+                center_y = (pdf_y1 + pdf_y2) / 2
+                
+                # Get page dimensions for bounds checking
+                page_rect = page.rect
+                
+                # Try expanding by 1.5x
+                expansion_factor = 1.5
+                expanded_width = box_width * expansion_factor
+                expanded_height = box_height * expansion_factor
+                
+                # Calculate new coordinates keeping center fixed
+                pdf_x1 = center_x - expanded_width / 2
+                pdf_y1 = center_y - expanded_height / 2
+                pdf_x2 = center_x + expanded_width / 2
+                pdf_y2 = center_y + expanded_height / 2
+                
+                # Clamp to page boundaries
+                pdf_x1 = max(0, pdf_x1)
+                pdf_y1 = max(0, pdf_y1)
+                pdf_x2 = min(page_rect.width, pdf_x2)
+                pdf_y2 = min(page_rect.height, pdf_y2)
+                
+                # Recalculate font size for expanded box
+                font_size = guessFontSize(len(text), pdf_x2 - pdf_x1, pdf_y2 - pdf_y1)
+                
+                # Update rect
+                rect = fitz.Rect(pdf_x1, pdf_y1, pdf_x2, pdf_y2)
+            
+            # Insert text with (possibly expanded) box
+            page.insert_textbox(
                 rect,
                 text,
                 fontsize=font_size,
@@ -447,45 +480,6 @@ class PDFSignerApp:
                 fontfile=None,
                 align=fitz.TEXT_ALIGN_LEFT
             )
-            
-            # If text overflowed, expand the box and try again
-            if overflow < 0:
-                # Calculate center of original box
-                center_x = (pdf_x1 + pdf_x2) / 2
-                center_y = (pdf_y1 + pdf_y2) / 2
-                
-                # Try expanding box up to 3 times (1.3x, 1.6x, 2.0x)
-                expansion_factors = [1.3, 1.6, 2.0]
-                for factor in expansion_factors:
-                    # Calculate new dimensions keeping center fixed
-                    new_width = box_width * factor
-                    new_height = box_height * factor
-                    
-                    new_pdf_x1 = center_x - new_width / 2
-                    new_pdf_y1 = center_y - new_height / 2
-                    new_pdf_x2 = center_x + new_width / 2
-                    new_pdf_y2 = center_y + new_height / 2
-                    
-                    # Create new rect
-                    new_rect = fitz.Rect(new_pdf_x1, new_pdf_y1, new_pdf_x2, new_pdf_y2)
-                    
-                    # Recalculate font size for new dimensions
-                    new_font_size = guessFontSize(len(text), new_width, new_height)
-                    
-                    # Try inserting again
-                    overflow = page.insert_textbox(
-                        new_rect,
-                        text,
-                        fontsize=new_font_size,
-                        fontname="helv",
-                        fontfile=None,
-                        align=fitz.TEXT_ALIGN_LEFT
-                    )
-                    
-                    if overflow >= 0:
-                        # Text fit successfully, update rect for any future reference
-                        rect = new_rect
-                        break
             
             # Re-render the page to show the text
             self.render_page()
