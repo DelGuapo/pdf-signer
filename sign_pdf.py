@@ -6,7 +6,7 @@ Usage: python sign_pdf.py <pdf_path> <signature_png_path>
 
 import sys
 import tkinter as tk
-from tkinter import messagebox, simpledialog
+from tkinter import messagebox
 import fitz  # PyMuPDF
 from PIL import Image, ImageTk
 import os
@@ -325,7 +325,7 @@ class PDFSignerApp:
         self.text_entry.focus()
         
         # Bind Enter key to Put Text action
-        self.text_entry.bind("<Return>", lambda e: self.put_text())
+        self.text_entry.bind("<Return>", lambda _: self.put_text())
         
         # Button frame
         button_frame = tk.Frame(self.text_dialog)
@@ -347,7 +347,7 @@ class PDFSignerApp:
     
     def put_text(self):
         """Insert text at selected coordinates"""
-        if not self.text_entry:
+        if not hasattr(self, 'text_entry') or not self.text_entry:
             return
         
         text = self.text_entry.get().strip()
