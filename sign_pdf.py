@@ -23,7 +23,7 @@ def guessFontSize(strLength, boxWidth, boxHeight):
         boxHeight: Height of the bounding box
     
     Returns:
-        Estimated font size in points
+        Estimated font size in points (minimum 4, maximum 72)
     """
     if strLength == 0:
         return 12
@@ -38,8 +38,8 @@ def guessFontSize(strLength, boxWidth, boxHeight):
     # Use the smaller of the two to ensure text fits
     font_size = min(width_based_size, height_based_size)
     
-    # Only clamp maximum, no minimum font size restriction
-    font_size = min(font_size, 72)
+    # Clamp to minimum and maximum bounds for consistency
+    font_size = max(4, min(font_size, 72))
     
     return font_size
 
@@ -794,6 +794,14 @@ class PDFSignerApp:
                 new_x2 = coords[2] * scale_x
                 new_y2 = coords[3] * scale_y
                 
+                # Ensure valid rectangle (prevent negative width/height)
+                if new_x2 <= rect.x0 or new_y2 <= rect.y0:
+                    # Invalid resize, cancel operation
+                    self.resize_handle = None
+                    self.resize_start = None
+                    self.render_page()
+                    return
+                
                 # Update rect (keep x0, y0 the same)
                 new_rect = fitz.Rect(rect.x0, rect.y0, new_x2, new_y2)
                 
@@ -827,22 +835,37 @@ class PDFSignerApp:
         self.render_page()
     
     def regenerate_page_content(self, page_num, exclude_textbox=None):
-        """Regenerate page content excluding a specific textbox"""
-        # This is a simplified approach - we reload the page from the original PDF
-        # and reapply all signatures and textboxes except the excluded one
+        """Regenerate page content excluding a specific textbox
         
-        # Close and reopen the PDF to get fresh page
+        Note: Due to PyMuPDF's API limitations, we must reload the entire PDF
+        to remove a specific textbox. We optimize by only processing the target page.
+        """
+        # Save current page number to restore later
+        original_page = self.current_page
+        
+        # Close and reopen the PDF to get fresh pages
         old_doc = self.pdf_document
         self.pdf_document = fitz.open(self.pdf_path)
         
-        # Copy over all modifications except the excluded textbox
-        for i, page in enumerate(self.pdf_document):
-            # Reapply signatures
+        # Only process pages that have modifications
+        pages_to_process = set()
+        for signature in self.signatures:
+            pages_to_process.add(signature['page'])
+        for textbox in self.text_boxes:
+            pages_to_process.add(textbox['page'])
+        
+        # Reapply modifications to affected pages
+        for i in pages_to_process:
+            if i >= len(self.pdf_document):
+                continue
+            page = self.pdf_document[i]
+            
+            # Reapply signatures on this page
             for signature in self.signatures:
                 if signature['page'] == i:
                     page.insert_image(signature['rect'], filename=self.signature_path)
             
-            # Reapply textboxes except excluded one
+            # Reapply textboxes on this page, except excluded one
             for textbox in self.text_boxes:
                 if textbox['page'] == i and textbox != exclude_textbox:
                     page.insert_textbox(
