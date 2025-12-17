@@ -435,14 +435,14 @@ class PDFSignerApp:
         rect = fitz.Rect(pdf_x1, pdf_y1, pdf_x2, pdf_y2)
         
         try:
-            # Calculate font size and check if box needs expansion
+            # Calculate font size using aggressive sizing
             font_size = guessFontSize(len(text), box_width, box_height)
             
-            # Baseline is "This is a test string" (21 chars)
-            # If text is longer than baseline and font is very small, consider expanding
+            # If text is very long and font is extremely small, consider expanding
+            # Only expand for text longer than 21 chars with font < 4pt
             baseline_length = 21
             if len(text) > baseline_length and font_size < 4:
-                # Box is likely too small for text longer than baseline, expand it
+                # Box is likely too small for very long text, expand it
                 # Calculate center for expansion
                 center_x = (pdf_x1 + pdf_x2) / 2
                 center_y = (pdf_y1 + pdf_y2) / 2
