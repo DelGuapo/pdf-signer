@@ -28,17 +28,19 @@ def guessFontSize(strLength, boxWidth, boxHeight):
     if strLength == 0:
         return 12
     
-    # Estimate based on width (assuming average character width is ~0.6 * font_size)
-    width_based_size = (boxWidth / strLength) / 0.6
+    # More conservative estimates to ensure text fits in smaller boxes
+    # Estimate based on width (assuming average character width is ~0.65 * font_size)
+    # Add a safety margin of 0.85 to ensure it fits
+    width_based_size = (boxWidth / strLength) / 0.65 * 0.85
     
-    # Estimate based on height (with some padding, use ~0.8 of height)
-    height_based_size = boxHeight * 0.8
+    # Estimate based on height (with padding, use ~0.7 of height for safety)
+    height_based_size = boxHeight * 0.7
     
     # Use the smaller of the two to ensure text fits
     font_size = min(width_based_size, height_based_size)
     
-    # Clamp between reasonable bounds
-    font_size = max(6, min(font_size, 72))
+    # Clamp between reasonable bounds, with a higher minimum for readability
+    font_size = max(4, min(font_size, 72))
     
     return font_size
 
@@ -70,9 +72,6 @@ class PDFSignerApp:
         
         self.setup_ui()
         self.render_page()
-        
-        # Show initial prompt
-        self.prompt_sign_doc()
     
     def setup_ui(self):
         """Setup the UI components"""
@@ -132,9 +131,27 @@ class PDFSignerApp:
             value="View Mode"
         ).pack(side=tk.LEFT)
         
+        # Frame for canvas and scrollbars
+        canvas_frame = tk.Frame(self.root)
+        canvas_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+        
         # Canvas for PDF display
-        self.canvas = tk.Canvas(self.root, bg="white")
-        self.canvas.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+        self.canvas = tk.Canvas(canvas_frame, bg="white")
+        
+        # Add scrollbars
+        v_scrollbar = tk.Scrollbar(canvas_frame, orient=tk.VERTICAL, command=self.canvas.yview)
+        h_scrollbar = tk.Scrollbar(canvas_frame, orient=tk.HORIZONTAL, command=self.canvas.xview)
+        
+        self.canvas.configure(yscrollcommand=v_scrollbar.set, xscrollcommand=h_scrollbar.set)
+        
+        # Grid layout for canvas and scrollbars
+        self.canvas.grid(row=0, column=0, sticky=tk.NSEW)
+        v_scrollbar.grid(row=0, column=1, sticky=tk.NS)
+        h_scrollbar.grid(row=1, column=0, sticky=tk.EW)
+        
+        # Configure grid weights
+        canvas_frame.grid_rowconfigure(0, weight=1)
+        canvas_frame.grid_columnconfigure(0, weight=1)
         
         # Bind mouse events for rectangle selection
         self.canvas.bind("<Button-1>", self.on_mouse_down)
@@ -167,8 +184,10 @@ class PDFSignerApp:
         
         # Update canvas
         self.canvas.delete("all")
-        self.canvas.config(width=pix.width, height=pix.height)
         self.canvas.create_image(0, 0, anchor=tk.NW, image=self.photo)
+        
+        # Configure scroll region to show entire image
+        self.canvas.config(scrollregion=(0, 0, pix.width, pix.height))
         
         # Store page dimensions for coordinate conversion
         self.page_width = page.rect.width
@@ -201,6 +220,10 @@ class PDFSignerApp:
     
     def on_mouse_down(self, event):
         """Handle mouse button down event"""
+        # Don't allow selection in View Mode
+        if self.mode.get() == "View Mode":
+            return
+        
         self.selection_start = (event.x, event.y)
         self.selection_end = (event.x, event.y)
         
@@ -210,6 +233,10 @@ class PDFSignerApp:
     
     def on_mouse_drag(self, event):
         """Handle mouse drag event"""
+        # Don't allow selection in View Mode
+        if self.mode.get() == "View Mode":
+            return
+        
         if self.selection_start:
             self.selection_end = (event.x, event.y)
             
@@ -227,6 +254,10 @@ class PDFSignerApp:
     
     def on_mouse_up(self, event):
         """Handle mouse button release event"""
+        # Don't allow selection in View Mode
+        if self.mode.get() == "View Mode":
+            return
+        
         if self.selection_start:
             self.selection_end = (event.x, event.y)
             
@@ -396,8 +427,9 @@ class PDFSignerApp:
         font_size = guessFontSize(len(text), box_width, box_height)
         
         try:
-            # Insert text
-            page.insert_textbox(
+            # Insert text with calculated font size
+            # insert_textbox returns the remaining text length (<0 if text overflowed)
+            overflow = page.insert_textbox(
                 rect,
                 text,
                 fontsize=font_size,
@@ -405,6 +437,12 @@ class PDFSignerApp:
                 fontfile=None,
                 align=fitz.TEXT_ALIGN_LEFT
             )
+            
+            # Warn user if text didn't fit completely
+            if overflow < 0:
+                messagebox.showwarning("Warning", 
+                    "Text may be too large for the selected box. "
+                    "Some text may be cut off. Consider making the box larger.")
             
             # Re-render the page to show the text
             self.render_page()
