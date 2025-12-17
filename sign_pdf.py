@@ -794,9 +794,14 @@ class PDFSignerApp:
                 new_x2 = coords[2] * scale_x
                 new_y2 = coords[3] * scale_y
                 
-                # Ensure valid rectangle (prevent negative width/height)
-                if new_x2 <= rect.x0 or new_y2 <= rect.y0:
-                    # Invalid resize, cancel operation
+                # Ensure valid rectangle with minimum usable size
+                # Minimum 20 PDF units (approximately 10 pixels at standard zoom)
+                min_size = 20
+                new_width = new_x2 - rect.x0
+                new_height = new_y2 - rect.y0
+                
+                if new_width < min_size or new_height < min_size:
+                    # Invalid resize (too small), cancel operation
                     self.resize_handle = None
                     self.resize_start = None
                     self.render_page()
@@ -838,11 +843,9 @@ class PDFSignerApp:
         """Regenerate page content excluding a specific textbox
         
         Note: Due to PyMuPDF's API limitations, we must reload the entire PDF
-        to remove a specific textbox. We optimize by only processing the target page.
+        to remove a specific textbox. We optimize by only processing pages that
+        have modifications (signatures or textboxes).
         """
-        # Save current page number to restore later
-        original_page = self.current_page
-        
         # Close and reopen the PDF to get fresh pages
         old_doc = self.pdf_document
         self.pdf_document = fitz.open(self.pdf_path)
