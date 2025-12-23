@@ -828,7 +828,7 @@ class PDFSignerApp:
                 page.insert_textbox(
                     new_rect,
                     textbox['text'],
-                    fontsize=textbox['font_size'],  # Use existing font size, don't recalculate
+                    fontsize=textbox['font_size'],
                     fontname="helv",
                     fontfile=None,
                     align=fitz.TEXT_ALIGN_LEFT
