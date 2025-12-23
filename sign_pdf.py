@@ -15,7 +15,7 @@ import os
 def guessFontSize(strLength, boxWidth, boxHeight):
     """
     Guess the best font size based on string length and box dimensions.
-    Uses very aggressive sizing to fit text in small boxes.
+    Uses conservative sizing to ensure text is readable and not oversized.
     
     Args:
         strLength: Length of the text string
@@ -23,23 +23,25 @@ def guessFontSize(strLength, boxWidth, boxHeight):
         boxHeight: Height of the bounding box
     
     Returns:
-        Estimated font size in points (minimum 4, maximum 72)
+        Estimated font size in points (minimum 4, maximum 24)
     """
     if strLength == 0:
         return 12
     
-    # Very aggressive sizing - assume narrow character width
-    # Estimate based on width (assuming average character width is ~0.35 * font_size for tight fit)
-    width_based_size = (boxWidth / strLength) / 0.35
+    # Conservative sizing - assume average character width is ~0.6 * font_size
+    # This gives more padding and smaller initial font
+    width_based_size = (boxWidth / strLength) / 0.6
     
-    # Estimate based on height (use almost full height)
-    height_based_size = boxHeight * 0.95
+    # Use conservative height-based sizing (about 70% of box height for single line)
+    # This prevents oversized text in tall boxes
+    height_based_size = boxHeight * 0.7
     
     # Use the smaller of the two to ensure text fits
     font_size = min(width_based_size, height_based_size)
     
-    # Clamp to minimum and maximum bounds for consistency
-    font_size = max(4, min(font_size, 72))
+    # Clamp to conservative bounds - err on small side as requested
+    # Maximum of 24pt instead of 72pt to prevent invisible text in large boxes
+    font_size = max(4, min(font_size, 24))
     
     return font_size
 
@@ -678,7 +680,8 @@ class PDFSignerApp:
         self.regenerate_page_content(textbox['page'], exclude_textbox=textbox)
         
         # Increase font size
-        textbox['font_size'] = min(textbox['font_size'] + 2, 144)
+        # Allow up to 72pt for users who need larger text, but initial size is conservative (max 24pt)
+        textbox['font_size'] = min(textbox['font_size'] + 2, 72)
         
         # Get the page AFTER regenerating (important: old page reference would be invalid)
         page = self.pdf_document[textbox['page']]
@@ -816,17 +819,16 @@ class PDFSignerApp:
                 # Update textbox rect
                 textbox['rect'] = new_rect
                 
-                # Recalculate font size for new box dimensions
-                box_width = new_rect.x1 - new_rect.x0
-                box_height = new_rect.y1 - new_rect.y0
-                textbox['font_size'] = guessFontSize(len(textbox['text']), box_width, box_height)
+                # IMPORTANT: Preserve user's font size setting during resize
+                # Do NOT recalculate font size - user controls this with +/- buttons
+                # The font_size in textbox['font_size'] is already set and should be maintained
                 
-                # Re-insert text with new rect and font size
+                # Re-insert text with new rect but SAME font size
                 page = self.pdf_document[textbox['page']]
                 page.insert_textbox(
                     new_rect,
                     textbox['text'],
-                    fontsize=textbox['font_size'],
+                    fontsize=textbox['font_size'],  # Use existing font size, don't recalculate
                     fontname="helv",
                     fontfile=None,
                     align=fitz.TEXT_ALIGN_LEFT
