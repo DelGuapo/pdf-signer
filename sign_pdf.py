@@ -209,6 +209,20 @@ class PDFSignerApp:
         self.canvas.bind("<Button-1>", self.on_mouse_down)
         self.canvas.bind("<B1-Motion>", self.on_mouse_drag)
         self.canvas.bind("<ButtonRelease-1>", self.on_mouse_up)
+        
+        # Bind mouse wheel scrolling
+        self.canvas.bind("<MouseWheel>", self.on_mouse_wheel)  # Windows/Mac
+        self.canvas.bind("<Button-4>", self.on_mouse_wheel)    # Linux scroll up
+        self.canvas.bind("<Button-5>", self.on_mouse_wheel)    # Linux scroll down
+        
+        # Bind keyboard arrow keys for scrolling
+        self.canvas.bind("<Up>", self.on_key_scroll)
+        self.canvas.bind("<Down>", self.on_key_scroll)
+        self.canvas.bind("<Left>", self.on_key_scroll)
+        self.canvas.bind("<Right>", self.on_key_scroll)
+        
+        # Set focus to canvas so keyboard events work
+        self.canvas.focus_set()
     
     def prompt_sign_doc(self):
         """Show 'Sign Doc?' prompt"""
@@ -378,6 +392,29 @@ class PDFSignerApp:
                     self.insert_signature()
                 elif current_mode == "Text Mode":
                     self.show_text_input_dialog()
+    
+    def on_mouse_wheel(self, event):
+        """Handle mouse wheel scrolling"""
+        # Determine scroll direction and amount
+        if event.num == 4 or event.delta > 0:
+            # Scroll up
+            self.canvas.yview_scroll(-1, "units")
+        elif event.num == 5 or event.delta < 0:
+            # Scroll down
+            self.canvas.yview_scroll(1, "units")
+    
+    def on_key_scroll(self, event):
+        """Handle keyboard arrow key scrolling"""
+        scroll_amount = 1  # Number of units to scroll
+        
+        if event.keysym == "Up":
+            self.canvas.yview_scroll(-scroll_amount, "units")
+        elif event.keysym == "Down":
+            self.canvas.yview_scroll(scroll_amount, "units")
+        elif event.keysym == "Left":
+            self.canvas.xview_scroll(-scroll_amount, "units")
+        elif event.keysym == "Right":
+            self.canvas.xview_scroll(scroll_amount, "units")
     
     def insert_signature(self):
         """Insert signature at selected coordinates"""
