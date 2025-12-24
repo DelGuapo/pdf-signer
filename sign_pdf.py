@@ -15,6 +15,9 @@ import os
 # Default font size for text boxes (can be adjusted with +/- buttons)
 DEFAULT_FONT_SIZE = 6
 
+# Scroll amount for keyboard arrow keys (units to scroll per key press)
+KEYBOARD_SCROLL_AMOUNT = 1
+
 
 def guessFontSize(strLength, boxWidth, boxHeight):
     """
@@ -395,17 +398,25 @@ class PDFSignerApp:
     
     def on_mouse_wheel(self, event):
         """Handle mouse wheel scrolling"""
-        # Determine scroll direction and amount
-        if event.num == 4 or event.delta > 0:
-            # Scroll up
-            self.canvas.yview_scroll(-1, "units")
-        elif event.num == 5 or event.delta < 0:
-            # Scroll down
-            self.canvas.yview_scroll(1, "units")
+        # Handle different platforms differently
+        # Linux uses Button-4 (scroll up) and Button-5 (scroll down)
+        # Windows/Mac use MouseWheel with delta values
+        if hasattr(event, 'num'):
+            # Linux: event.num is 4 (up) or 5 (down)
+            if event.num == 4:
+                self.canvas.yview_scroll(-1, "units")
+            elif event.num == 5:
+                self.canvas.yview_scroll(1, "units")
+        elif hasattr(event, 'delta'):
+            # Windows/Mac: event.delta is positive (up) or negative (down)
+            if event.delta > 0:
+                self.canvas.yview_scroll(-1, "units")
+            elif event.delta < 0:
+                self.canvas.yview_scroll(1, "units")
     
     def on_key_scroll(self, event):
         """Handle keyboard arrow key scrolling"""
-        scroll_amount = 1  # Number of units to scroll
+        scroll_amount = KEYBOARD_SCROLL_AMOUNT
         
         if event.keysym == "Up":
             self.canvas.yview_scroll(-scroll_amount, "units")
