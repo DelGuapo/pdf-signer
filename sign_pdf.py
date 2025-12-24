@@ -13,7 +13,10 @@ import os
 
 
 # Default font size for text boxes (can be adjusted with +/- buttons)
-DEFAULT_FONT_SIZE = 10
+DEFAULT_FONT_SIZE = 6
+
+# Scroll amount for keyboard arrow keys (units to scroll per key press)
+KEYBOARD_SCROLL_AMOUNT = 1
 
 
 def guessFontSize(strLength, boxWidth, boxHeight):
@@ -54,6 +57,9 @@ class PDFSignerApp:
     def __init__(self, root, pdf_path, signature_path):
         self.root = root
         self.root.title("PDF Signer")
+        
+        # Make window full-screen
+        self.root.state('zoomed')  # Maximized window for Windows/Linux
         
         # Set window icon
         self.set_window_icon()
@@ -206,6 +212,20 @@ class PDFSignerApp:
         self.canvas.bind("<Button-1>", self.on_mouse_down)
         self.canvas.bind("<B1-Motion>", self.on_mouse_drag)
         self.canvas.bind("<ButtonRelease-1>", self.on_mouse_up)
+        
+        # Bind mouse wheel scrolling
+        self.canvas.bind("<MouseWheel>", self.on_mouse_wheel)  # Windows/Mac
+        self.canvas.bind("<Button-4>", self.on_mouse_wheel)    # Linux scroll up
+        self.canvas.bind("<Button-5>", self.on_mouse_wheel)    # Linux scroll down
+        
+        # Bind keyboard arrow keys for scrolling
+        self.canvas.bind("<Up>", self.on_key_scroll)
+        self.canvas.bind("<Down>", self.on_key_scroll)
+        self.canvas.bind("<Left>", self.on_key_scroll)
+        self.canvas.bind("<Right>", self.on_key_scroll)
+        
+        # Set focus to canvas so keyboard events work
+        self.canvas.focus_set()
     
     def prompt_sign_doc(self):
         """Show 'Sign Doc?' prompt"""
@@ -276,7 +296,7 @@ class PDFSignerApp:
         canvas_x = self.canvas.canvasx(event.x)
         canvas_y = self.canvas.canvasy(event.y)
         
-        # Check if clicking on text box control buttons
+        # Check if clicking on text box control buttons (performs action)
         if self.check_textbox_button_click(canvas_x, canvas_y):
             return
         
@@ -336,14 +356,25 @@ class PDFSignerApp:
         canvas_x = self.canvas.canvasx(event.x)
         canvas_y = self.canvas.canvasy(event.y)
         
-        # Finish text box resizing
+        # Finish text box resizing (check FIRST before button clicks)
         if self.resize_handle:
             self.finish_textbox_resize()
             return
         
-        # Finish text box moving
+        # Finish text box moving (check SECOND before button clicks)
         if self.move_handle:
             self.finish_textbox_move()
+            return
+        
+        # Check if mouse is over a button (to prevent text dialog after clicking buttons)
+        # We only check position, not perform action (action already done in on_mouse_down)
+        if self.is_over_button(canvas_x, canvas_y):
+            # Clear any selection to prevent accidental text prompts
+            self.selection_start = None
+            self.selection_end = None
+            if self.selection_rect:
+                self.canvas.delete(self.selection_rect)
+                self.selection_rect = None
             return
         
         # Don't allow selection in View Mode
@@ -364,6 +395,37 @@ class PDFSignerApp:
                     self.insert_signature()
                 elif current_mode == "Text Mode":
                     self.show_text_input_dialog()
+    
+    def on_mouse_wheel(self, event):
+        """Handle mouse wheel scrolling"""
+        # Handle different platforms differently
+        # Linux uses Button-4 (scroll up) and Button-5 (scroll down)
+        # Windows/Mac use MouseWheel with delta values
+        if hasattr(event, 'num'):
+            # Linux: event.num is 4 (up) or 5 (down)
+            if event.num == 4:
+                self.canvas.yview_scroll(-1, "units")
+            elif event.num == 5:
+                self.canvas.yview_scroll(1, "units")
+        elif hasattr(event, 'delta'):
+            # Windows/Mac: event.delta is positive (up) or negative (down)
+            if event.delta > 0:
+                self.canvas.yview_scroll(-1, "units")
+            elif event.delta < 0:
+                self.canvas.yview_scroll(1, "units")
+    
+    def on_key_scroll(self, event):
+        """Handle keyboard arrow key scrolling"""
+        scroll_amount = KEYBOARD_SCROLL_AMOUNT
+        
+        if event.keysym == "Up":
+            self.canvas.yview_scroll(-scroll_amount, "units")
+        elif event.keysym == "Down":
+            self.canvas.yview_scroll(scroll_amount, "units")
+        elif event.keysym == "Left":
+            self.canvas.xview_scroll(-scroll_amount, "units")
+        elif event.keysym == "Right":
+            self.canvas.xview_scroll(scroll_amount, "units")
     
     def insert_signature(self):
         """Insert signature at selected coordinates"""
@@ -643,6 +705,16 @@ class PDFSignerApp:
             )
             textbox['canvas_items'].append(border)
             
+            # Display font size in top-right corner (small blue text)
+            font_size_text = self.canvas.create_text(
+                x2 - 5, y1 + 8,  # 5px from right edge, 8px from top
+                text=str(int(textbox['font_size'])),
+                font=("Arial", 8),  # Small font for readability
+                fill="blue",
+                anchor="ne"  # North-east anchor (top-right)
+            )
+            textbox['canvas_items'].append(font_size_text)
+            
             # Draw resize handles (small squares at corners)
             handle_size = 8
             # Bottom-right corner handle
@@ -703,16 +775,17 @@ class PDFSignerApp:
             )
             textbox['canvas_items'].extend([x_btn, x_text])
             
-            # Move button (fixed to left side above text box)
-            move_btn_x = x1
+            # Move button (below and to the right of text box)
+            move_btn_x = x2 - button_size  # Align with right edge
+            move_btn_y = y2 + 5  # Below the text box
             move_btn = self.canvas.create_rectangle(
-                move_btn_x, button_y, move_btn_x + button_size, button_y + button_size,
+                move_btn_x, move_btn_y, move_btn_x + button_size, move_btn_y + button_size,
                 fill="lightblue",
                 outline="darkblue",
                 width=1
             )
             move_text = self.canvas.create_text(
-                move_btn_x + button_size / 2, button_y + button_size / 2,
+                move_btn_x + button_size / 2, move_btn_y + button_size / 2,
                 text="⇄",
                 font=("Arial", 12, "bold")
             )
@@ -734,6 +807,7 @@ class PDFSignerApp:
             x1 = rect.x0 * scale_x
             y1 = rect.y0 * scale_y
             x2 = rect.x1 * scale_x
+            y2 = rect.y1 * scale_y
             
             button_y = y1 - button_size - 5
             
@@ -758,11 +832,59 @@ class PDFSignerApp:
                 self.delete_textbox(textbox)
                 return True
             
-            # Check move button
-            move_btn_x = x1
+            # Check move button (below and to the right of text box)
+            move_btn_x = x2 - button_size
+            move_btn_y = y2 + 5
             if (move_btn_x <= canvas_x <= move_btn_x + button_size and
-                button_y <= canvas_y <= button_y + button_size):
+                move_btn_y <= canvas_y <= move_btn_y + button_size):
                 self.start_move_textbox(textbox, canvas_x, canvas_y)
+                return True
+        
+        return False
+    
+    def is_over_button(self, canvas_x, canvas_y):
+        """Check if mouse position is over any text box control button (without performing action)"""
+        button_size = 20
+        
+        for textbox in self.text_boxes:
+            if textbox['page'] != self.current_page:
+                continue
+            
+            # Convert PDF coordinates to display coordinates
+            rect = textbox['rect']
+            scale_x = self.display_width / self.page_width
+            scale_y = self.display_height / self.page_height
+            
+            x1 = rect.x0 * scale_x
+            y1 = rect.y0 * scale_y
+            x2 = rect.x1 * scale_x
+            y2 = rect.y1 * scale_y
+            
+            button_y = y1 - button_size - 5
+            
+            # Check + button
+            plus_btn_x = x2 - button_size
+            if (plus_btn_x <= canvas_x <= plus_btn_x + button_size and
+                button_y <= canvas_y <= button_y + button_size):
+                return True
+            
+            # Check - button
+            minus_btn_x = plus_btn_x - button_size - 5
+            if (minus_btn_x <= canvas_x <= minus_btn_x + button_size and
+                button_y <= canvas_y <= button_y + button_size):
+                return True
+            
+            # Check x button
+            x_btn_x = plus_btn_x + button_size + 5
+            if (x_btn_x <= canvas_x <= x_btn_x + button_size and
+                button_y <= canvas_y <= button_y + button_size):
+                return True
+            
+            # Check move button (below and to the right of text box)
+            move_btn_x = x2 - button_size
+            move_btn_y = y2 + 5
+            if (move_btn_x <= canvas_x <= move_btn_x + button_size and
+                move_btn_y <= canvas_y <= move_btn_y + button_size):
                 return True
         
         return False
