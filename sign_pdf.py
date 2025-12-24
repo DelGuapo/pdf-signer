@@ -759,6 +759,7 @@ class PDFSignerApp:
             x1 = rect.x0 * scale_x
             y1 = rect.y0 * scale_y
             x2 = rect.x1 * scale_x
+            y2 = rect.y1 * scale_y
             
             button_y = y1 - button_size - 5
             
