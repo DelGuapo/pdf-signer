@@ -15,7 +15,7 @@ import os
 def guessFontSize(strLength, boxWidth, boxHeight):
     """
     Guess the best font size based on string length and box dimensions.
-    Uses very aggressive sizing to fit text in small boxes.
+    Uses conservative sizing to ensure text is readable and not oversized.
     
     Args:
         strLength: Length of the text string
@@ -23,23 +23,25 @@ def guessFontSize(strLength, boxWidth, boxHeight):
         boxHeight: Height of the bounding box
     
     Returns:
-        Estimated font size in points
+        Estimated font size in points (minimum 4, maximum 24)
     """
     if strLength == 0:
         return 12
     
-    # Very aggressive sizing - assume narrow character width
-    # Estimate based on width (assuming average character width is ~0.35 * font_size for tight fit)
-    width_based_size = (boxWidth / strLength) / 0.35
+    # Conservative sizing - assume average character width is ~0.6 * font_size
+    # This gives more padding and smaller initial font
+    width_based_size = (boxWidth / strLength) / 0.6
     
-    # Estimate based on height (use almost full height)
-    height_based_size = boxHeight * 0.95
+    # Use conservative height-based sizing (about 70% of box height for single line)
+    # This prevents oversized text in tall boxes
+    height_based_size = boxHeight * 0.7
     
     # Use the smaller of the two to ensure text fits
     font_size = min(width_based_size, height_based_size)
     
-    # Only clamp maximum, no minimum font size restriction
-    font_size = min(font_size, 72)
+    # Clamp to conservative bounds - err on small side as requested
+    # Maximum of 24pt instead of 72pt to prevent invisible text in large boxes
+    font_size = max(4, min(font_size, 24))
     
     return font_size
 
@@ -58,6 +60,13 @@ class PDFSignerApp:
         self.signed = False
         self.mode = tk.StringVar(value="View Mode")  # Default mode
         self.text_dialog = None
+        
+        # Track text boxes for editing/resizing
+        self.text_boxes = []  # List of dict: {rect, text, font_size, page, canvas_items}
+        self.signatures = []  # List of dict: {rect, page}
+        self.selected_textbox = None
+        self.resize_handle = None
+        self.resize_start = None
         
         # Load PDF
         try:
@@ -204,6 +213,9 @@ class PDFSignerApp:
         self.next_button.config(
             state=tk.NORMAL if self.current_page < len(self.pdf_document) - 1 else tk.DISABLED
         )
+        
+        # Redraw text box controls for current page
+        self.draw_textbox_controls()
     
     def prev_page(self):
         """Navigate to previous page"""
@@ -219,13 +231,21 @@ class PDFSignerApp:
     
     def on_mouse_down(self, event):
         """Handle mouse button down event"""
-        # Don't allow selection in View Mode
-        if self.mode.get() == "View Mode":
-            return
-        
         # Convert window coordinates to canvas coordinates (accounts for scrolling)
         canvas_x = self.canvas.canvasx(event.x)
         canvas_y = self.canvas.canvasy(event.y)
+        
+        # Check if clicking on text box control buttons
+        if self.check_textbox_button_click(canvas_x, canvas_y):
+            return
+        
+        # Check if clicking on a text box border for resizing
+        if self.check_textbox_resize_start(canvas_x, canvas_y):
+            return
+        
+        # Don't allow selection in View Mode
+        if self.mode.get() == "View Mode":
+            return
         
         self.selection_start = (canvas_x, canvas_y)
         self.selection_end = (canvas_x, canvas_y)
@@ -236,15 +256,20 @@ class PDFSignerApp:
     
     def on_mouse_drag(self, event):
         """Handle mouse drag event"""
+        # Convert window coordinates to canvas coordinates (accounts for scrolling)
+        canvas_x = self.canvas.canvasx(event.x)
+        canvas_y = self.canvas.canvasy(event.y)
+        
+        # Handle text box resizing
+        if self.resize_handle:
+            self.handle_textbox_resize(canvas_x, canvas_y)
+            return
+        
         # Don't allow selection in View Mode
         if self.mode.get() == "View Mode":
             return
         
         if self.selection_start:
-            # Convert window coordinates to canvas coordinates (accounts for scrolling)
-            canvas_x = self.canvas.canvasx(event.x)
-            canvas_y = self.canvas.canvasy(event.y)
-            
             self.selection_end = (canvas_x, canvas_y)
             
             # Update rectangle
@@ -261,15 +286,20 @@ class PDFSignerApp:
     
     def on_mouse_up(self, event):
         """Handle mouse button release event"""
+        # Convert window coordinates to canvas coordinates (accounts for scrolling)
+        canvas_x = self.canvas.canvasx(event.x)
+        canvas_y = self.canvas.canvasy(event.y)
+        
+        # Finish text box resizing
+        if self.resize_handle:
+            self.finish_textbox_resize()
+            return
+        
         # Don't allow selection in View Mode
         if self.mode.get() == "View Mode":
             return
         
         if self.selection_start:
-            # Convert window coordinates to canvas coordinates (accounts for scrolling)
-            canvas_x = self.canvas.canvasx(event.x)
-            canvas_y = self.canvas.canvasy(event.y)
-            
             self.selection_end = (canvas_x, canvas_y)
             
             # Check if we have a valid selection
@@ -318,6 +348,12 @@ class PDFSignerApp:
             # Insert signature image
             page.insert_image(rect, filename=self.signature_path)
             
+            # Track signature for regeneration
+            self.signatures.append({
+                'rect': rect,
+                'page': self.current_page
+            })
+            
             # Re-render the page to show the signature
             self.render_page()
             
@@ -334,8 +370,6 @@ class PDFSignerApp:
             
             # Switch to View Mode
             self.mode.set("View Mode")
-            
-            messagebox.showinfo("Success", "Signature added successfully!")
         
         except Exception as e:
             messagebox.showerror("Error", f"Failed to insert signature: {e}")
@@ -483,6 +517,16 @@ class PDFSignerApp:
                 align=fitz.TEXT_ALIGN_LEFT
             )
             
+            # Store text box information for later editing
+            textbox_data = {
+                'rect': rect,
+                'text': text,
+                'font_size': font_size,
+                'page': self.current_page,
+                'canvas_items': []
+            }
+            self.text_boxes.append(textbox_data)
+            
             # Re-render the page to show the text
             self.render_page()
             
@@ -497,10 +541,8 @@ class PDFSignerApp:
             self.sign_pdf_button.config(state=tk.NORMAL)
             self.signed = True
             
-            # Switch to View Mode
-            self.mode.set("View Mode")
-            
-            messagebox.showinfo("Success", "Text added successfully!")
+            # Stay in Text Mode to allow adding more text
+            # (Do not switch to View Mode)
         
         except Exception as e:
             messagebox.showerror("Error", f"Failed to insert text: {e}")
@@ -518,6 +560,331 @@ class PDFSignerApp:
             self.canvas.delete(self.selection_rect)
             self.selection_rect = None
     
+    def draw_textbox_controls(self):
+        """Draw interactive controls for text boxes on current page"""
+        # Remove old canvas items from all textboxes
+        for textbox in self.text_boxes:
+            for item in textbox['canvas_items']:
+                self.canvas.delete(item)
+            textbox['canvas_items'] = []
+        
+        # Draw controls for text boxes on current page
+        for textbox in self.text_boxes:
+            if textbox['page'] != self.current_page:
+                continue
+            
+            # Convert PDF coordinates to display coordinates
+            rect = textbox['rect']
+            scale_x = self.display_width / self.page_width
+            scale_y = self.display_height / self.page_height
+            
+            x1 = rect.x0 * scale_x
+            y1 = rect.y0 * scale_y
+            x2 = rect.x1 * scale_x
+            y2 = rect.y1 * scale_y
+            
+            # Draw border rectangle
+            border = self.canvas.create_rectangle(
+                x1, y1, x2, y2,
+                outline="blue",
+                width=2,
+                dash=(5, 3)
+            )
+            textbox['canvas_items'].append(border)
+            
+            # Draw resize handles (small squares at corners)
+            handle_size = 8
+            # Bottom-right corner handle
+            handle = self.canvas.create_rectangle(
+                x2 - handle_size, y2 - handle_size, x2, y2,
+                fill="blue",
+                outline="white",
+                width=1
+            )
+            textbox['canvas_items'].append(handle)
+            
+            # Draw + and - buttons above the text box
+            button_size = 20
+            button_y = y1 - button_size - 5
+            
+            # + button (right)
+            plus_btn_x = x2 - button_size
+            plus_btn = self.canvas.create_rectangle(
+                plus_btn_x, button_y, plus_btn_x + button_size, button_y + button_size,
+                fill="lightgreen",
+                outline="darkgreen",
+                width=1
+            )
+            plus_text = self.canvas.create_text(
+                plus_btn_x + button_size / 2, button_y + button_size / 2,
+                text="+",
+                font=("Arial", 14, "bold")
+            )
+            textbox['canvas_items'].extend([plus_btn, plus_text])
+            
+            # - button (left of + button)
+            minus_btn_x = plus_btn_x - button_size - 5
+            minus_btn = self.canvas.create_rectangle(
+                minus_btn_x, button_y, minus_btn_x + button_size, button_y + button_size,
+                fill="lightcoral",
+                outline="darkred",
+                width=1
+            )
+            minus_text = self.canvas.create_text(
+                minus_btn_x + button_size / 2, button_y + button_size / 2,
+                text="-",
+                font=("Arial", 14, "bold")
+            )
+            textbox['canvas_items'].extend([minus_btn, minus_text])
+    
+    def check_textbox_button_click(self, canvas_x, canvas_y):
+        """Check if a text box control button was clicked"""
+        button_size = 20
+        
+        for textbox in self.text_boxes:
+            if textbox['page'] != self.current_page:
+                continue
+            
+            # Convert PDF coordinates to display coordinates
+            rect = textbox['rect']
+            scale_x = self.display_width / self.page_width
+            scale_y = self.display_height / self.page_height
+            
+            x1 = rect.x0 * scale_x
+            y1 = rect.y0 * scale_y
+            x2 = rect.x1 * scale_x
+            
+            button_y = y1 - button_size - 5
+            
+            # Check + button
+            plus_btn_x = x2 - button_size
+            if (plus_btn_x <= canvas_x <= plus_btn_x + button_size and
+                button_y <= canvas_y <= button_y + button_size):
+                self.increase_font_size(textbox)
+                return True
+            
+            # Check - button
+            minus_btn_x = plus_btn_x - button_size - 5
+            if (minus_btn_x <= canvas_x <= minus_btn_x + button_size and
+                button_y <= canvas_y <= button_y + button_size):
+                self.decrease_font_size(textbox)
+                return True
+        
+        return False
+    
+    def increase_font_size(self, textbox):
+        """Increase font size of a text box"""
+        # Remove old text
+        # Find and remove the text by redrawing the page content
+        # We need to regenerate the page from original and reapply all changes
+        self.regenerate_page_content(textbox['page'], exclude_textbox=textbox)
+        
+        # Increase font size
+        # Allow up to 72pt for users who need larger text, but initial size is conservative (max 24pt)
+        textbox['font_size'] = min(textbox['font_size'] + 2, 72)
+        
+        # Get the page AFTER regenerating (important: old page reference would be invalid)
+        page = self.pdf_document[textbox['page']]
+        
+        # Re-insert text with new size
+        page.insert_textbox(
+            textbox['rect'],
+            textbox['text'],
+            fontsize=textbox['font_size'],
+            fontname="helv",
+            fontfile=None,
+            align=fitz.TEXT_ALIGN_LEFT
+        )
+        
+        # Re-render page
+        self.render_page()
+    
+    def decrease_font_size(self, textbox):
+        """Decrease font size of a text box"""
+        # Remove old text
+        self.regenerate_page_content(textbox['page'], exclude_textbox=textbox)
+        
+        # Decrease font size
+        textbox['font_size'] = max(textbox['font_size'] - 2, 4)
+        
+        # Get the page AFTER regenerating (important: old page reference would be invalid)
+        page = self.pdf_document[textbox['page']]
+        
+        # Re-insert text with new size
+        page.insert_textbox(
+            textbox['rect'],
+            textbox['text'],
+            fontsize=textbox['font_size'],
+            fontname="helv",
+            fontfile=None,
+            align=fitz.TEXT_ALIGN_LEFT
+        )
+        
+        # Re-render page
+        self.render_page()
+    
+    def check_textbox_resize_start(self, canvas_x, canvas_y):
+        """Check if starting to resize a text box"""
+        handle_size = 8
+        
+        for textbox in self.text_boxes:
+            if textbox['page'] != self.current_page:
+                continue
+            
+            # Convert PDF coordinates to display coordinates
+            rect = textbox['rect']
+            scale_x = self.display_width / self.page_width
+            scale_y = self.display_height / self.page_height
+            
+            x2 = rect.x1 * scale_x
+            y2 = rect.y1 * scale_y
+            
+            # Check bottom-right handle
+            if (x2 - handle_size <= canvas_x <= x2 and
+                y2 - handle_size <= canvas_y <= y2):
+                self.resize_handle = textbox
+                self.resize_start = (canvas_x, canvas_y)
+                return True
+        
+        return False
+    
+    def handle_textbox_resize(self, canvas_x, canvas_y):
+        """Handle text box resizing during drag"""
+        if not self.resize_handle or not self.resize_start:
+            return
+        
+        textbox = self.resize_handle
+        rect = textbox['rect']
+        
+        # Calculate new size in display coordinates
+        scale_x = self.display_width / self.page_width
+        scale_y = self.display_height / self.page_height
+        
+        x1 = rect.x0 * scale_x
+        y1 = rect.y0 * scale_y
+        
+        # Update display with live preview
+        # Clear old controls and redraw with new size
+        for item in textbox['canvas_items']:
+            self.canvas.delete(item)
+        textbox['canvas_items'] = []
+        
+        # Draw preview rectangle
+        preview = self.canvas.create_rectangle(
+            x1, y1, canvas_x, canvas_y,
+            outline="blue",
+            width=2,
+            dash=(5, 3)
+        )
+        textbox['canvas_items'].append(preview)
+    
+    def finish_textbox_resize(self):
+        """Finish resizing a text box"""
+        if not self.resize_handle:
+            return
+        
+        textbox = self.resize_handle
+        rect = textbox['rect']
+        
+        # Get current canvas position from the preview rectangle
+        if textbox['canvas_items']:
+            coords = self.canvas.coords(textbox['canvas_items'][0])
+            if len(coords) >= 4:
+                # Convert display coordinates back to PDF coordinates
+                scale_x = self.page_width / self.display_width
+                scale_y = self.page_height / self.display_height
+                
+                new_x2 = coords[2] * scale_x
+                new_y2 = coords[3] * scale_y
+                
+                # Ensure valid rectangle with minimum usable size
+                # Minimum 20 PDF units (approximately 10 pixels at standard zoom)
+                min_size = 20
+                new_width = new_x2 - rect.x0
+                new_height = new_y2 - rect.y0
+                
+                if new_width < min_size or new_height < min_size:
+                    # Invalid resize (too small), cancel operation
+                    self.resize_handle = None
+                    self.resize_start = None
+                    self.render_page()
+                    return
+                
+                # Update rect (keep x0, y0 the same)
+                new_rect = fitz.Rect(rect.x0, rect.y0, new_x2, new_y2)
+                
+                # Regenerate page without this textbox
+                self.regenerate_page_content(textbox['page'], exclude_textbox=textbox)
+                
+                # Update textbox rect
+                textbox['rect'] = new_rect
+                
+                # IMPORTANT: Preserve user's font size setting during resize
+                # Do NOT recalculate font size - user controls this with +/- buttons
+                # The font_size in textbox['font_size'] is already set and should be maintained
+                
+                # Re-insert text with new rect but SAME font size
+                page = self.pdf_document[textbox['page']]
+                page.insert_textbox(
+                    new_rect,
+                    textbox['text'],
+                    fontsize=textbox['font_size'],
+                    fontname="helv",
+                    fontfile=None,
+                    align=fitz.TEXT_ALIGN_LEFT
+                )
+        
+        # Clear resize state
+        self.resize_handle = None
+        self.resize_start = None
+        
+        # Re-render page
+        self.render_page()
+    
+    def regenerate_page_content(self, page_num, exclude_textbox=None):
+        """Regenerate page content excluding a specific textbox
+        
+        Note: Due to PyMuPDF's API limitations, we must reload the entire PDF
+        to remove a specific textbox. We optimize by only processing pages that
+        have modifications (signatures or textboxes).
+        """
+        # Close and reopen the PDF to get fresh pages
+        old_doc = self.pdf_document
+        self.pdf_document = fitz.open(self.pdf_path)
+        
+        # Only process pages that have modifications
+        pages_to_process = set()
+        for signature in self.signatures:
+            pages_to_process.add(signature['page'])
+        for textbox in self.text_boxes:
+            pages_to_process.add(textbox['page'])
+        
+        # Reapply modifications to affected pages
+        for i in pages_to_process:
+            if i >= len(self.pdf_document):
+                continue
+            page = self.pdf_document[i]
+            
+            # Reapply signatures on this page
+            for signature in self.signatures:
+                if signature['page'] == i:
+                    page.insert_image(signature['rect'], filename=self.signature_path)
+            
+            # Reapply textboxes on this page, except excluded one
+            for textbox in self.text_boxes:
+                if textbox['page'] == i and textbox != exclude_textbox:
+                    page.insert_textbox(
+                        textbox['rect'],
+                        textbox['text'],
+                        fontsize=textbox['font_size'],
+                        fontname="helv",
+                        fontfile=None,
+                        align=fitz.TEXT_ALIGN_LEFT
+                    )
+        
+        # Close old document
+        old_doc.close()
+    
     def save_signed_pdf(self):
         """Save the signed PDF with _SIGNED suffix"""
         if not self.signed:
@@ -529,6 +896,12 @@ class PDFSignerApp:
         output_path = f"{base_name}_SIGNED.pdf"
         
         try:
+            # Clear all text box controls from canvas (they won't be saved)
+            for textbox in self.text_boxes:
+                for item in textbox['canvas_items']:
+                    self.canvas.delete(item)
+                textbox['canvas_items'] = []
+            
             self.pdf_document.save(output_path)
             messagebox.showinfo("Success", f"PDF saved as: {output_path}")
             self.cleanup()
