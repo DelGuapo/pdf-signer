@@ -12,6 +12,10 @@ from PIL import Image, ImageTk, ImageDraw
 import os
 
 
+# Default font size for text boxes (can be adjusted with +/- buttons)
+DEFAULT_FONT_SIZE = 10
+
+
 def guessFontSize(strLength, boxWidth, boxHeight):
     """
     Guess the best font size based on string length and box dimensions.
@@ -113,8 +117,9 @@ class PDFSignerApp:
             
             # Keep a reference to prevent garbage collection
             self.root.icon_image = photo
-        except Exception as e:
+        except (ImportError, AttributeError, Exception) as e:
             # If icon creation fails, just skip it (not critical)
+            # Icon display is optional and shouldn't prevent app from running
             pass
     
     def setup_ui(self):
@@ -515,8 +520,8 @@ class PDFSignerApp:
         rect = fitz.Rect(pdf_x1, pdf_y1, pdf_x2, pdf_y2)
         
         try:
-            # Default font size to 10 (bypass guessFontSize)
-            font_size = 10
+            # Default font size (bypass guessFontSize)
+            font_size = DEFAULT_FONT_SIZE
             
             # If text is very long and font is extremely small, consider expanding
             # Only expand for text longer than 21 chars with font < 4pt
@@ -547,8 +552,8 @@ class PDFSignerApp:
                 pdf_x2 = min(page_rect.width, pdf_x2)
                 pdf_y2 = min(page_rect.height, pdf_y2)
                 
-                # Keep default font size of 10 for expanded box
-                font_size = 10
+                # Keep default font size for expanded box
+                font_size = DEFAULT_FONT_SIZE
                 
                 # Update rect
                 rect = fitz.Rect(pdf_x1, pdf_y1, pdf_x2, pdf_y2)
