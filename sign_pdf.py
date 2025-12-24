@@ -56,8 +56,7 @@ class PDFSignerApp:
         self.root.title("PDF Signer")
         
         # Make window full-screen
-        self.root.state('zoomed')  # For Windows/Linux
-        # Alternative for cross-platform: self.root.attributes('-zoomed', True)
+        self.root.state('zoomed')  # Maximized window for Windows/Linux
         
         # Set window icon
         self.set_window_icon()
@@ -657,11 +656,11 @@ class PDFSignerApp:
             )
             textbox['canvas_items'].append(border)
             
-            # Display font size in top-right corner (small blue text, size 4 equivalent ~8px)
+            # Display font size in top-right corner (small blue text)
             font_size_text = self.canvas.create_text(
                 x2 - 5, y1 + 8,  # 5px from right edge, 8px from top
                 text=str(int(textbox['font_size'])),
-                font=("Arial", 8),  # Small font (approximately size 4 in points)
+                font=("Arial", 8),  # Small font for readability
                 fill="blue",
                 anchor="ne"  # North-east anchor (top-right)
             )
