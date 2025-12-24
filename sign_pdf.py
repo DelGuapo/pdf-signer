@@ -13,7 +13,7 @@ import os
 
 
 # Default font size for text boxes (can be adjusted with +/- buttons)
-DEFAULT_FONT_SIZE = 10
+DEFAULT_FONT_SIZE = 6
 
 
 def guessFontSize(strLength, boxWidth, boxHeight):
@@ -54,6 +54,10 @@ class PDFSignerApp:
     def __init__(self, root, pdf_path, signature_path):
         self.root = root
         self.root.title("PDF Signer")
+        
+        # Make window full-screen
+        self.root.state('zoomed')  # For Windows/Linux
+        # Alternative for cross-platform: self.root.attributes('-zoomed', True)
         
         # Set window icon
         self.set_window_icon()
@@ -335,6 +339,16 @@ class PDFSignerApp:
         # Convert window coordinates to canvas coordinates (accounts for scrolling)
         canvas_x = self.canvas.canvasx(event.x)
         canvas_y = self.canvas.canvasy(event.y)
+        
+        # Check if this is a button click (prevents text dialog after clicking control buttons)
+        if self.check_textbox_button_click(canvas_x, canvas_y):
+            # Clear any selection to prevent accidental text prompts
+            self.selection_start = None
+            self.selection_end = None
+            if self.selection_rect:
+                self.canvas.delete(self.selection_rect)
+                self.selection_rect = None
+            return
         
         # Finish text box resizing
         if self.resize_handle:
@@ -643,6 +657,16 @@ class PDFSignerApp:
             )
             textbox['canvas_items'].append(border)
             
+            # Display font size in top-right corner (small blue text, size 4 equivalent ~8px)
+            font_size_text = self.canvas.create_text(
+                x2 - 5, y1 + 8,  # 5px from right edge, 8px from top
+                text=str(int(textbox['font_size'])),
+                font=("Arial", 8),  # Small font (approximately size 4 in points)
+                fill="blue",
+                anchor="ne"  # North-east anchor (top-right)
+            )
+            textbox['canvas_items'].append(font_size_text)
+            
             # Draw resize handles (small squares at corners)
             handle_size = 8
             # Bottom-right corner handle
@@ -703,16 +727,17 @@ class PDFSignerApp:
             )
             textbox['canvas_items'].extend([x_btn, x_text])
             
-            # Move button (fixed to left side above text box)
-            move_btn_x = x1
+            # Move button (below and to the right of text box)
+            move_btn_x = x2 - button_size  # Align with right edge
+            move_btn_y = y2 + 5  # Below the text box
             move_btn = self.canvas.create_rectangle(
-                move_btn_x, button_y, move_btn_x + button_size, button_y + button_size,
+                move_btn_x, move_btn_y, move_btn_x + button_size, move_btn_y + button_size,
                 fill="lightblue",
                 outline="darkblue",
                 width=1
             )
             move_text = self.canvas.create_text(
-                move_btn_x + button_size / 2, button_y + button_size / 2,
+                move_btn_x + button_size / 2, move_btn_y + button_size / 2,
                 text="⇄",
                 font=("Arial", 12, "bold")
             )
@@ -758,10 +783,11 @@ class PDFSignerApp:
                 self.delete_textbox(textbox)
                 return True
             
-            # Check move button
-            move_btn_x = x1
+            # Check move button (below and to the right of text box)
+            move_btn_x = x2 - button_size
+            move_btn_y = y2 + 5
             if (move_btn_x <= canvas_x <= move_btn_x + button_size and
-                button_y <= canvas_y <= button_y + button_size):
+                move_btn_y <= canvas_y <= move_btn_y + button_size):
                 self.start_move_textbox(textbox, canvas_x, canvas_y)
                 return True
         
