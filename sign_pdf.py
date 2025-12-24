@@ -279,7 +279,7 @@ class PDFSignerApp:
         canvas_x = self.canvas.canvasx(event.x)
         canvas_y = self.canvas.canvasy(event.y)
         
-        # Check if clicking on text box control buttons
+        # Check if clicking on text box control buttons (performs action)
         if self.check_textbox_button_click(canvas_x, canvas_y):
             return
         
@@ -339,24 +339,25 @@ class PDFSignerApp:
         canvas_x = self.canvas.canvasx(event.x)
         canvas_y = self.canvas.canvasy(event.y)
         
-        # Check if this is a button click (prevents text dialog after clicking control buttons)
-        if self.check_textbox_button_click(canvas_x, canvas_y):
+        # Finish text box resizing (check FIRST before button clicks)
+        if self.resize_handle:
+            self.finish_textbox_resize()
+            return
+        
+        # Finish text box moving (check SECOND before button clicks)
+        if self.move_handle:
+            self.finish_textbox_move()
+            return
+        
+        # Check if mouse is over a button (to prevent text dialog after clicking buttons)
+        # We only check position, not perform action (action already done in on_mouse_down)
+        if self.is_over_button(canvas_x, canvas_y):
             # Clear any selection to prevent accidental text prompts
             self.selection_start = None
             self.selection_end = None
             if self.selection_rect:
                 self.canvas.delete(self.selection_rect)
                 self.selection_rect = None
-            return
-        
-        # Finish text box resizing
-        if self.resize_handle:
-            self.finish_textbox_resize()
-            return
-        
-        # Finish text box moving
-        if self.move_handle:
-            self.finish_textbox_move()
             return
         
         # Don't allow selection in View Mode
@@ -788,6 +789,53 @@ class PDFSignerApp:
             if (move_btn_x <= canvas_x <= move_btn_x + button_size and
                 move_btn_y <= canvas_y <= move_btn_y + button_size):
                 self.start_move_textbox(textbox, canvas_x, canvas_y)
+                return True
+        
+        return False
+    
+    def is_over_button(self, canvas_x, canvas_y):
+        """Check if mouse position is over any text box control button (without performing action)"""
+        button_size = 20
+        
+        for textbox in self.text_boxes:
+            if textbox['page'] != self.current_page:
+                continue
+            
+            # Convert PDF coordinates to display coordinates
+            rect = textbox['rect']
+            scale_x = self.display_width / self.page_width
+            scale_y = self.display_height / self.page_height
+            
+            x1 = rect.x0 * scale_x
+            y1 = rect.y0 * scale_y
+            x2 = rect.x1 * scale_x
+            y2 = rect.y1 * scale_y
+            
+            button_y = y1 - button_size - 5
+            
+            # Check + button
+            plus_btn_x = x2 - button_size
+            if (plus_btn_x <= canvas_x <= plus_btn_x + button_size and
+                button_y <= canvas_y <= button_y + button_size):
+                return True
+            
+            # Check - button
+            minus_btn_x = plus_btn_x - button_size - 5
+            if (minus_btn_x <= canvas_x <= minus_btn_x + button_size and
+                button_y <= canvas_y <= button_y + button_size):
+                return True
+            
+            # Check x button
+            x_btn_x = plus_btn_x + button_size + 5
+            if (x_btn_x <= canvas_x <= x_btn_x + button_size and
+                button_y <= canvas_y <= button_y + button_size):
+                return True
+            
+            # Check move button (below and to the right of text box)
+            move_btn_x = x2 - button_size
+            move_btn_y = y2 + 5
+            if (move_btn_x <= canvas_x <= move_btn_x + button_size and
+                move_btn_y <= canvas_y <= move_btn_y + button_size):
                 return True
         
         return False
